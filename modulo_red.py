@@ -1,79 +1,68 @@
 #!/usr/bin/env python3
 import os
+import glob
 
-# Blacklist base para el motor de prueba de 醋
-# En fases avanzadas, esta lista se descargará dinámicamente desde IOCs públicos
-C2_BLACKLIST = [
-    "185.220.101.5",
-    "45.33.32.156",
-    "192.0.2.1"
-]
-
-def hex_to_ip(hex_ip):
-    """Converts a hexadecimal IP string from /proc/net/tcp to a human-readable IP."""
+def obtener_nombre_proceso(pid):
+    """Obtiene el nombre del ejecutable a partir del PID."""
     try:
-        r = int(hex_ip[6:8], 16)
-        g = int(hex_ip[4:6], 16)
-        b = int(hex_ip[2:4], 16)
-        a = int(hex_ip[0:2], 16)
-        return f"{r}.{g}.{b}.{a}"
-    except:
-        return "0.0.0.0"
+        with open(f"/proc/{pid}/comm", "r") as f:
+            return f.read().strip()
+    except (FileNotFoundError, PermissionError):
+        return "Desconocido"
 
-def hex_to_port(hex_port):
-    """Converts a hexadecimal port string to an integer port."""
+def hex_a_ip(hex_str):
+    """Convierte la dirección IP en hexadecimal de /proc/net/tcp a formato decimal."""
     try:
-        return int(hex_port, 16)
-    except:
-        return 0
+        addr_hex, port_hex = hex_str.split(":")
+        ip = ".".join(str(int(addr_hex[i:i+2], 16)) for i in range(6, -1, -2))
+        port = int(port_hex, 16)
+        return f"{ip}:{port}"
+    except Exception:
+        return hex_str
 
-def scan_active_sockets():
-    """
-    Scans active network connections and compares foreign IPs against C2 threat lists.
-    """
-    print("[*] Scanning and auditing active network sockets...")
-    
-    net_tcp_path = "/proc/net/tcp"
-    
-    if not os.path.exists(net_tcp_path):
-        print("[!] Error: /proc/net/tcp not accessible.")
+def mapear_sockets_a_pids():
+    """Mapea los inodes de sockets a sus PIDs correspondientes."""
+    socket_map = {}
+    for pid_path in glob.glob("/proc/[0-9]*"):
+        pid = os.path.basename(pid_path)
+        fd_dir = os.path.join(pid_path, "fd")
+        try:
+            for fd in os.listdir(fd_dir):
+                link = os.readlink(os.path.join(fd_dir, fd))
+                if link.startswith("socket:["):
+                    inode = link[8:-1]
+                    socket_map[inode] = pid
+        except (PermissionError, FileNotFoundError):
+            continue
+    return socket_map
+
+def auditar_red():
+    """Lee /proc/net/tcp y muestra los sockets activos vinculados a su proceso."""
+    ruta_tcp = "/proc/net/tcp"
+    if not os.path.exists(ruta_tcp):
+        print("[-] Error: No se puede acceder a la interfaz de red del kernel.")
         return
 
-    try:
-        with open(net_tcp_path, "r") as file:
-            lines = file.readlines()[1:] # Skip header
+    socket_pids = mapear_sockets_a_pids()
+
+    print("[*] Escaneando sockets de red activos en el kernel...")
+    print(f"{'Local Address':<22} -> {'Foreign Address':<22} {'PID':<8} {'Proceso':<15}")
+    print("-" * 70)
+
+    with open(ruta_tcp, "r") as f:
+        lineas = f.readlines()[1:] # Omitir encabezado
+
+    for linea in lineas:
+        partes = linea.strip().split()
+        if len(partes) >= 10:
+            local = hex_a_ip(partes[1])
+            remota = hex_a_ip(partes[2])
+            inode = partes[9]
             
-        print(f"[+] Active TCP sockets detected: {len(lines)}")
-        print("    [Index] Local Address       -> Foreign Address     [Status]")
-        print("    -----------------------------------------------------------------")
-        
-        for idx, line in enumerate(lines[:10]):
-            parts = line.strip().split()
-            
-            local_ip_hex, local_port_hex = parts[1].split(":")
-            foreign_ip_hex, foreign_port_hex = parts[2].split(":")
-            
-            local_ip = hex_to_ip(local_ip_hex)
-            local_port = hex_to_port(local_port_hex)
-            
-            foreign_ip = hex_to_ip(foreign_ip_hex)
-            foreign_port = hex_to_port(foreign_port_hex)
-            
-            full_foreign = f"{foreign_ip}:{foreign_port}"
-            
-            # Verificación de amenaza
-            if foreign_ip in C2_BLACKLIST:
-                status = "[!] C2 THREAT DETECTED!"
-            elif foreign_ip == "0.0.0.0":
-                status = "[+] LISTENING (Local)"
-            else:
-                status = "[+] OUTBOUND (CLEAN)"
-            
-            print(f"    [{idx+1:02d}] {local_ip}:{local_port:<5} -> {full_foreign:<20} {status}")
-            
-    except Exception as e:
-        print(f"[!] Failed to read sockets: {e}")
+            pid = socket_pids.get(inode, "N/A")
+            nombre_proc = obtener_nombre_proceso(pid) if pid != "N/A" else "System/Kernel"
+
+            print(f"{local:<22} -> {remota:<22} {pid:<8} {nombre_proc:<15}")
 
 if __name__ == "__main__":
-    print("=== 醋 (Cù) Network Monitor Module ===")
-    scan_active_sockets()
+    auditar_red()
