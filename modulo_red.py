@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import glob
+import modulo_engano
 
 def obtener_nombre_proceso(pid):
     """Obtiene el nombre del ejecutable a partir del PID."""
@@ -37,7 +38,7 @@ def mapear_sockets_a_pids():
     return socket_map
 
 def auditar_red():
-    """Lee /proc/net/tcp y muestra los sockets activos vinculados a su proceso."""
+    """Lee /proc/net/tcp, muestra sockets vinculados a PIDs y evalúa IoCs."""
     ruta_tcp = "/proc/net/tcp"
     if not os.path.exists(ruta_tcp):
         print("[-] Error: No se puede acceder a la interfaz de red del kernel.")
@@ -46,11 +47,11 @@ def auditar_red():
     socket_pids = mapear_sockets_a_pids()
 
     print("[*] Escaneando sockets de red activos en el kernel...")
-    print(f"{'Local Address':<22} -> {'Foreign Address':<22} {'PID':<8} {'Proceso':<15}")
-    print("-" * 70)
+    print(f"{'Local Address':<20} -> {'Foreign Address':<20} {'PID':<8} {'Proceso':<12} {'Status':<15}")
+    print("-" * 80)
 
     with open(ruta_tcp, "r") as f:
-        lineas = f.readlines()[1:] # Omitir encabezado
+        lineas = f.readlines()[1:]
 
     for linea in lineas:
         partes = linea.strip().split()
@@ -62,7 +63,12 @@ def auditar_red():
             pid = socket_pids.get(inode, "N/A")
             nombre_proc = obtener_nombre_proceso(pid) if pid != "N/A" else "System/Kernel"
 
-            print(f"{local:<22} -> {remota:<22} {pid:<8} {nombre_proc:<15}")
+            es_amenaza, estado = modulo_engano.evaluar_amenaza(remota)
+
+            print(f"{local:<20} -> {remota:<20} {pid:<8} {nombre_proc:<12} [{estado}]")
+
+            if es_amenaza:
+                modulo_engano.aislar_socket(pid, remota)
 
 if __name__ == "__main__":
     auditar_red()
