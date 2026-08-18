@@ -4,15 +4,15 @@ import glob
 import modulo_engano
 
 def obtener_nombre_proceso(pid):
-    """Obtiene el nombre del ejecutable a partir del PID."""
+    """Retrieves executable name from PID."""
     try:
         with open(f"/proc/{pid}/comm", "r") as f:
             return f.read().strip()
     except (FileNotFoundError, PermissionError):
-        return "Desconocido"
+        return "Unknown"
 
 def hex_a_ip(hex_str):
-    """Convierte la dirección IP en hexadecimal de /proc/net/tcp a formato decimal."""
+    """Converts hex address from /proc/net/tcp to decimal format."""
     try:
         addr_hex, port_hex = hex_str.split(":")
         ip = ".".join(str(int(addr_hex[i:i+2], 16)) for i in range(6, -1, -2))
@@ -22,7 +22,7 @@ def hex_a_ip(hex_str):
         return hex_str
 
 def mapear_sockets_a_pids():
-    """Mapea los inodes de sockets a sus PIDs correspondientes."""
+    """Maps socket inodes to PIDs."""
     socket_map = {}
     for pid_path in glob.glob("/proc/[0-9]*"):
         pid = os.path.basename(pid_path)
@@ -38,16 +38,16 @@ def mapear_sockets_a_pids():
     return socket_map
 
 def auditar_red():
-    """Lee /proc/net/tcp, muestra sockets vinculados a PIDs y evalúa IoCs."""
+    """Audits active network sockets and correlates with PIDs and IoCs."""
     ruta_tcp = "/proc/net/tcp"
     if not os.path.exists(ruta_tcp):
-        print("[-] Error: No se puede acceder a la interfaz de red del kernel.")
+        print("[-] Error: Unable to access kernel network interface.")
         return
 
     socket_pids = mapear_sockets_a_pids()
 
-    print("[*] Escaneando sockets de red activos en el kernel...")
-    print(f"{'Local Address':<20} -> {'Foreign Address':<20} {'PID':<8} {'Proceso':<12} {'Status':<15}")
+    print("[*] Auditing active network sockets in kernel...")
+    print(f"{'Local Address':<20} -> {'Foreign Address':<20} {'PID':<8} {'Process':<12} {'Status':<15}")
     print("-" * 80)
 
     with open(ruta_tcp, "r") as f:
