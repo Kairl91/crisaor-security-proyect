@@ -41,7 +41,7 @@ def generar_token_memoria():
 def main():
     print("=======================================================")
     print("      CRISAOR SECURITY ENGINE (Project 醋)")
-    print("      Phase 3 Development - August 17, 2026")
+    print("      Phase 4 Development - August 18, 2026")
     print("=======================================================")
     
     verificar_privilegios()
